@@ -1,50 +1,68 @@
 const express = require('express');
+const logger = require('loglevel');
 const uuid = require('uuid');
 
+let packages;
+let counters;
+
 function getPackageRoutes(db) {
-    const packages = db.collection('packages');
+    packages = db.collection('packages');
+    counters = db.collection('counters');
 
     const router = express.Router();
 
-    router.post('/', (req, res) => insertPackage(req, res, packages));
-    router.get('/', (req, res) => getPackages(req, res, packages));
-    router.put('/', (req, res) => updatePackage(req, res, packages));
-    router.delete('/', (req, res) => deletePackage(req, res, packages));
-    
+    router.post('/', insertPackage);
+    router.get('/', getPackages);
+    router.put('/', updatePackage);
+    router.delete('/', deletePackage);
+
     return router;
 }
 
-async function insertPackage(req, res, packages) {
+async function getNextTrackingNumber() {
+    const res = await counters.findOneAndUpdate(
+        { _id: 'trackingnumber' },
+        { $inc: { 'sequence_value': 1 } },
+    );
+
+    logger.info(res);
+
+    return res.value['sequence_value'];
+}
+
+async function insertPackage(req, res) {
     console.log(req.body);
     packages.insertOne({
         ...req.body,
-        id: uuid.v4()
+        _id: (await getNextTrackingNumber())
     })
         .then(result => {
-            console.log(result.ops);
+            logger.info(result.ops);
             res.json(result);
         })
         .catch(err => {
+            logger.error(err);
             res.statusCode = 500;
             res.json(err);
         })
 }
 
-async function getPackages(req, res, packages) {
+async function getPackages(req, res) {
     const cursor = packages.find();
     cursor.toArray().then(arr => {
-        console.log(arr);
+        logger.info(arr);
         res.json(arr);
     })
         .catch(err => {
+            logger.error(err);
             res.statusCode = 500;
             res.json(err);
         });
 }
 
-async function updatePackage(req, res, packages) {
+async function updatePackage(req, res) {
     packages.findOneAndUpdate(
-        { id: req.body.id },
+        { _id: req.body.id },
         {
             $set: {
                 to: req.body.to,
@@ -52,28 +70,33 @@ async function updatePackage(req, res, packages) {
             }
         },
         {
-            upsert: true
+            upsert: false
         }
     )
-    .then(result => {
-        res.json(result);
-    })
-    .catch(err => {
-        res.statusCode = 500;
-        res.json(err);
-    })
+        .then(result => {
+            res.json(result);
+            logger.info(result);
+        })
+        .catch(err => {
+            logger.error(err);
+            res.statusCode = 500;
+            res.json(err);
+        })
 }
 
-async function deletePackage(req, res, packages) {
+async function deletePackage(req, res) {
     packages.findOneAndDelete(
-        {id: req.body.id}
+        { _id: req.body.id }
     )
-    .then(result => res.json(result))
-    .catch(err => {
-        console.error(err);
-        res.statusCode = 500;
-        res.json(err);
-    });
+        .then(result => {
+            res.json(result);
+            logger.info(result);
+        })
+        .catch(err => {
+            logger.error(err);
+            res.statusCode = 500;
+            res.json(err);
+        });
 }
 
 module.exports = getPackageRoutes;
